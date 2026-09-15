@@ -351,9 +351,13 @@
    SDP Internal Performance & Workflow Management System — Frontend
    Plain JS single-page app. Talks to the FastAPI backend at API_BASE.
    ========================================================================= */
+// ⚠️ DEPLOYMENT: replace this with your actual deployed backend URL
+// (e.g. the Render service URL) before deploying the frontend to Vercel.
+const PRODUCTION_API_BASE = 'http://127.0.0.1:8000/api/v1';
+
 const API_BASE = window.location.origin.includes('5500') || window.location.protocol === 'file:'
   ? 'http://localhost:8000/api/v1'
-  : (localStorage.getItem('sdp_api_base') || 'http://localhost:8000/api/v1');
+  : (localStorage.getItem('sdp_api_base') || PRODUCTION_API_BASE);
 
 let state = {
   access: localStorage.getItem('sdp_access') || null,
@@ -735,13 +739,13 @@ async function renderDashboard(root) {
           <h3>እሴቶቻችን (Core Values)</h3>
           <ul class="values-list">
             <li>🤝 አገልጋይነት </li>
-            <li>🛡️ ታማኝነት </li>
-            <li>✅ ተጠያቂነት</li>
+            <li>🛡️ ታማኝነት</li>
+            <li>✅ ተጠያቂነት </li>
             <li>📌 ኃላፊነት</li>
             <li>📚 በዕውቀት መምራት</li>
-            <li>🔍 ግልጽነትና አሳታፊነት </li>
+            <li>🔍 ግልጽነትና አሳታፊነት</li>
             <li>🚀 የለውጥ ባለቤት መሆን </li>
-            <li>🤲 የቡድን ሥራ</li>
+            <li>🤲 የቡድን ሥራ </li>
           </ul>
           ${gemSvg}
         </div>

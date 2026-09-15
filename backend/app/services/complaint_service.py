@@ -105,6 +105,11 @@ async def list_complaints(db: AsyncSession, current_user: User) -> list[Complain
     elif current_user.role == UserRole.DIRECTOR:
         scope = await user_service.visible_employee_ids_for(db, current_user)
         stmt = stmt.where(Complaint.employee_id.in_(scope) | (Complaint.target_user_id == current_user.id))
+    elif current_user.role == UserRole.TECHNICAL_COMMITTEE:
+        # Technical Committee is a queue, not an all-seeing oversight role
+        # like HR/Super Admin — they see complaints actually routed to that
+        # queue, plus anything they personally filed.
+        stmt = stmt.where((Complaint.current_handler_role == "technical_committee") | (Complaint.employee_id == current_user.id))
     elif current_user.role in (UserRole.SUPER_ADMIN, UserRole.HUMAN_RESOURCE):
         pass  # sees all
     else:
@@ -112,6 +117,28 @@ async def list_complaints(db: AsyncSession, current_user: User) -> list[Complain
 
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def can_view_complaint(db: AsyncSession, complaint: Complaint, user: User) -> bool:
+    """The same visibility rules as list_complaints, applied to a single
+    record — used by the direct GET-by-id and GET-history endpoints. Without
+    this, either endpoint would let anyone who knows/guesses a complaint ID
+    read its full detail or entire private response history regardless of
+    whether they have any legitimate connection to it (a classic IDOR gap):
+    list_complaints only controls what shows up in someone's own list, it
+    does nothing to protect a direct-by-id request."""
+    if user.role in (UserRole.SUPER_ADMIN, UserRole.HUMAN_RESOURCE):
+        return True
+    if complaint.employee_id == user.id:
+        return True
+    if complaint.target_user_id == user.id:
+        return True
+    if user.role in (UserRole.TEAM_LEADER, UserRole.DIRECTOR):
+        scope = await user_service.visible_employee_ids_for(db, user)
+        return complaint.employee_id in scope
+    if user.role == UserRole.TECHNICAL_COMMITTEE:
+        return complaint.current_handler_role == "technical_committee"
+    return False
 
 
 async def get_complaint_or_404(db: AsyncSession, complaint_id: uuid.UUID) -> Complaint:

@@ -31,14 +31,16 @@ async def list_complaints(db: AsyncSession = Depends(get_db), current_user: User
 @router.get("/{complaint_id}", response_model=ComplaintPublic)
 async def get_complaint(complaint_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     complaint = await complaint_service.get_complaint_or_404(db, complaint_id)
-    if current_user.role == UserRole.EMPLOYEE and complaint.employee_id != current_user.id:
+    if not await complaint_service.can_view_complaint(db, complaint, current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot access this record")
     return complaint
 
 
 @router.get("/{complaint_id}/history")
 async def get_complaint_history(complaint_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    await complaint_service.get_complaint_or_404(db, complaint_id)
+    complaint = await complaint_service.get_complaint_or_404(db, complaint_id)
+    if not await complaint_service.can_view_complaint(db, complaint, current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot access this record")
     return await complaint_service.get_history(db, complaint_id)
 
 
@@ -48,7 +50,7 @@ async def respond_to_complaint(
     payload: ComplaintRespond,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.TEAM_LEADER, UserRole.DIRECTOR, UserRole.HUMAN_RESOURCE, UserRole.SUPER_ADMIN)
+        require_roles(UserRole.TEAM_LEADER, UserRole.DIRECTOR, UserRole.HUMAN_RESOURCE, UserRole.TECHNICAL_COMMITTEE, UserRole.SUPER_ADMIN)
     ),
 ):
     complaint = await complaint_service.respond(

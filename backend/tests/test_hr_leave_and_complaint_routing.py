@@ -160,3 +160,122 @@ async def test_any_role_can_submit_complaint_and_hr_can_answer(client):
     )
     assert respond.status_code == 200
     assert respond.json()["status"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_complaint_routed_to_specific_director_blocks_other_directors(client):
+    """A complaint addressed to one specific Director must not be visible
+    to, or actionable by, a different Director who happens to share the
+    same role — the whole point of picking a specific person."""
+    admin = await _register(client, username="admin1", email="admin1@example.com", role="super_admin", position="Admin")
+    admin_token = admin["access_token"]
+
+    dir1 = await _register(client, token=admin_token, username="dir1", email="dir1@example.com", role="director", position="Director")
+    dir1_id, dir1_token = dir1["user"]["id"], dir1["access_token"]
+
+    dir2 = await _register(client, token=admin_token, username="dir2", email="dir2@example.com", role="director", position="Director")
+    dir2_token = dir2["access_token"]
+
+    tl = await _register(client, token=admin_token, username="tlfordir1", email="tlfordir1@example.com", role="team_leader", position="TL", director_id=dir1_id)
+    tl_id = tl["user"]["id"]
+
+    emp = await _register(client, username="emp1", email="emp1@example.com", role="employee", position="Officer", team_leader_id=tl_id)
+    emp_token = emp["access_token"]
+
+    r = await client.post(
+        "/api/v1/complaints",
+        json={"category": "HR", "subject": "Workplace conflict", "message": "Details here.",
+              "recipient": "director", "target_user_id": dir1_id},
+        headers=_auth(emp_token),
+    )
+    assert r.status_code == 201, r.text
+    complaint = r.json()
+    assert complaint["target_label"]  # director's full_name
+    cid = complaint["id"]
+
+    # Wrong director: blocked from viewing, from history, and from responding.
+    wrong_view = await client.get(f"/api/v1/complaints/{cid}", headers=_auth(dir2_token))
+    assert wrong_view.status_code == 403, wrong_view.text
+    wrong_history = await client.get(f"/api/v1/complaints/{cid}/history", headers=_auth(dir2_token))
+    assert wrong_history.status_code == 403, wrong_history.text
+    wrong_respond = await client.post(f"/api/v1/complaints/{cid}/respond", json={"message": "x", "resolve": True}, headers=_auth(dir2_token))
+    assert wrong_respond.status_code == 403, wrong_respond.text
+    wrong_list = await client.get("/api/v1/complaints", headers=_auth(dir2_token))
+    assert not any(c["id"] == cid for c in wrong_list.json())
+
+    # Right director: can view, see history, and resolve it.
+    right_view = await client.get(f"/api/v1/complaints/{cid}", headers=_auth(dir1_token))
+    assert right_view.status_code == 200
+    right_history = await client.get(f"/api/v1/complaints/{cid}/history", headers=_auth(dir1_token))
+    assert right_history.status_code == 200
+    right_respond = await client.post(f"/api/v1/complaints/{cid}/respond", json={"message": "Resolved.", "resolve": True}, headers=_auth(dir1_token))
+    assert right_respond.status_code == 200, right_respond.text
+    assert right_respond.json()["status"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_complaint_direct_get_blocks_unrelated_team_leader(client):
+    """GET /complaints/{id} and its /history must enforce the same
+    visibility rules as the list endpoint — an unrelated Team Leader (not
+    the submitter's own, not the addressed target) must not be able to
+    read a complaint just by knowing its id."""
+    admin = await _register(client, username="admin1", email="admin1@example.com", role="super_admin", position="Admin")
+    admin_token = admin["access_token"]
+
+    dir1 = await _register(client, token=admin_token, username="dir1", email="dir1@example.com", role="director", position="Director")
+    dir1_id = dir1["user"]["id"]
+
+    tl_owner = await _register(client, token=admin_token, username="tlowner", email="tlowner@example.com", role="team_leader", position="TL", director_id=dir1_id)
+    tl_owner_id = tl_owner["user"]["id"]
+
+    tl_stranger = await _register(client, token=admin_token, username="tlstranger", email="tlstranger@example.com", role="team_leader", position="TL", director_id=dir1_id)
+    tl_stranger_token = tl_stranger["access_token"]
+
+    emp = await _register(client, username="emp1", email="emp1@example.com", role="employee", position="Officer", team_leader_id=tl_owner_id)
+    emp_token = emp["access_token"]
+
+    r = await client.post(
+        "/api/v1/complaints",
+        json={"category": "General", "subject": "Issue", "message": "Something happened."},
+        headers=_auth(emp_token),
+    )
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+
+    stranger_view = await client.get(f"/api/v1/complaints/{cid}", headers=_auth(tl_stranger_token))
+    assert stranger_view.status_code == 403, stranger_view.text
+    stranger_history = await client.get(f"/api/v1/complaints/{cid}/history", headers=_auth(tl_stranger_token))
+    assert stranger_history.status_code == 403, stranger_history.text
+
+
+@pytest.mark.asyncio
+async def test_complaint_routed_to_technical_committee_is_actionable(client):
+    """Technical Committee must actually be able to see and respond to a
+    complaint addressed to them — a routing option that nobody could act on
+    would be a dead end."""
+    admin = await _register(client, username="admin1", email="admin1@example.com", role="super_admin", position="Admin")
+    admin_token = admin["access_token"]
+
+    tc = await _register(client, token=admin_token, username="tc1", email="tc1@example.com", role="technical_committee", position="TC Member")
+    tc_token = tc["access_token"]
+
+    dir1 = await _register(client, token=admin_token, username="dirtc", email="dirtc@example.com", role="director", position="Director")
+    tl = await _register(client, token=admin_token, username="tltc", email="tltc@example.com", role="team_leader", position="TL", director_id=dir1["user"]["id"])
+    emp = await _register(client, username="emp1", email="emp1@example.com", role="employee", position="Officer", team_leader_id=tl["user"]["id"])
+    emp_token = emp["access_token"]
+
+    r = await client.post(
+        "/api/v1/complaints",
+        json={"category": "Technical", "subject": "System bug", "message": "Details.", "recipient": "technical_committee"},
+        headers=_auth(emp_token),
+    )
+    assert r.status_code == 201, r.text
+    cid = r.json()["id"]
+
+    listing = await client.get("/api/v1/complaints", headers=_auth(tc_token))
+    assert listing.status_code == 200
+    assert any(c["id"] == cid for c in listing.json())
+
+    respond = await client.post(f"/api/v1/complaints/{cid}/respond", json={"message": "Looking into it.", "resolve": False}, headers=_auth(tc_token))
+    assert respond.status_code == 200, respond.text
+    assert respond.json()["status"] == "in_review"

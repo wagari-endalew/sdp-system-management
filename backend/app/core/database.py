@@ -20,6 +20,17 @@ class Base(DeclarativeBase):
 
 
 def _make_engine(url: str):
+    # Render/Heroku/most managed Postgres providers hand you a plain
+    # postgres:// or postgresql:// URL — that maps to the sync psycopg2
+    # driver by default, which crashes immediately under this app's async
+    # engine. Rewriting it here means you can paste the connection string
+    # from your provider's dashboard as-is, with no manual editing that's
+    # easy to forget right before a deploy.
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+
     connect_args = {}
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}

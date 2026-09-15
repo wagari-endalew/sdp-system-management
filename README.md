@@ -49,8 +49,8 @@ User management, Audit Logs, Dashboard summary, CSV report export.
 1. Create a project at supabase.com, then go to **Project Settings → Database** and
    copy the connection string.
 2. `cd backend && cp .env.example .env`, then edit `.env`:
-   - `DATABASE_URL` = the Supabase string, with `postgresql://` changed to
-     `postgresql+asyncpg://`
+   - `DATABASE_URL` = paste the Supabase string exactly as given (the app auto-converts
+     `postgresql://` to the async driver it needs at startup — no manual editing needed)
    - `SECRET_KEY` = generate one: `python -c "import secrets; print(secrets.token_urlsafe(64))"`
 3. Install & run:
    ```bash
